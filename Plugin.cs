@@ -63,8 +63,6 @@ namespace GloomwoodVoiceMod
     public class GVMPatches {
         // Cache the AIDetectParams for a small performance boost.
         private static AIDetectParams aIDetectParams = new AIDetectParams();
-        private static readonly int maxCooldown = 40;
-        private static int cd = 0;
 
         public static void Initialize() {
             aIDetectParams.isPlayer = true;
@@ -76,34 +74,44 @@ namespace GloomwoodVoiceMod
         [HarmonyPatch(typeof(PlayerMovement), "Update")]
         [HarmonyPostfix]
         private static void PlayerMovement_Update_Postfix(PlayerMovement __instance) {
-            if(cd < maxCooldown) {
-                cd++;
-            }
-
             AIDetectLevel detectLevel = AIDetectLevel.None;
             Plugin.instance.InitMic();
-            float volume = Plugin.instance.LevelMax() * 6;
+            float volume = Plugin.instance.LevelMax() * 10;
             Plugin.instance.getLogger().LogMessage("mic vol: " + volume);
 
-            if(cd >= maxCooldown && volume < 1.0) {
+            if(volume > 0.0) {
                 PlayerEntity plr = GameManager.Player;
                 if(GameManager.HasPlayer) {
-                    if(volume >= 0.03) {
+                    if(volume >= 0.7) {
                         detectLevel = AIDetectLevel.High;
-                    } else if(volume >= 0.01) {
+                    } else if(volume >= 0.4) {
                         detectLevel = AIDetectLevel.Moderate;
                     } else {
                         detectLevel = AIDetectLevel.Low;
                     }
                     Plugin.instance.getLogger().LogMessage("Detection Level set to " + detectLevel + " from source volume " + volume);
+                    bool skipEntity = false;
 
                     foreach(AIEntity ai in GameManager.AIManager.GetActiveAI()) {
                         if(
                             ai.Sense != null 
-                            && Vector3.Distance(plr.Position, ai.Position) > (16 * (int) detectLevel)
+                            && Vector3.Distance(plr.Position, ai.Position) > (22 * volume)
                             && ai.EntityType == EntityTypes.AI
                         ) {
+                            foreach(var det in ai.Sense.detectedDict.Values) {
+                                if((int) det.level >= (int) detectLevel) {
+                                    skipEntity = true;
+                                    break;
+                                }
+                            }
+
+                            if(skipEntity) { continue; }
+
                             try {
+                                if(!ai.Sense.detectedObjList.Contains(plr.gameObject)) {
+                                    ai.Sense.detectedObjList.Add(plr.gameObject);
+                                }
+
                                 var detection = ai.Sense.GetDetection(plr.gameObject);
                                 aIDetectParams.targetPosition = plr.position;
                                 aIDetectParams.heardPosition = ai.Position;
@@ -113,15 +121,19 @@ namespace GloomwoodVoiceMod
                                 aIDetectParams.source = GameManager.Player.gameObject;
                                 aIDetectParams.player = GameManager.Player;
 
+                                if(!ai.Sense.detectedObjList.Contains(plr.gameObject)) {
+                                    ai.Sense.detectedObjList.Add(plr.gameObject);
+                                }
                                 if(detection != null) {
                                     detection = ai.sense.ProcessDetection(detection, ref aIDetectParams);
-                                    if(!ai.Sense.detectedObjList.Contains(plr.gameObject)) {
-                                        ai.Sense.detectedObjList.Add(plr.gameObject);
-                                    }
                                     ai.Sense.SetDetection(
                                         plr.gameObject, 
                                         detection
                                     );
+                                    
+                                    if(!ai.Sense.detectedObjList.Contains(plr.gameObject)) {
+                                        ai.Sense.detectedObjList.Add(plr.gameObject);
+                                    }
                                 }
                             } catch(Exception e) {
                                 // Log any errors that occur.
@@ -130,7 +142,6 @@ namespace GloomwoodVoiceMod
                         }
                     }
                 }
-                cd = 0;
             }
         }
     }
